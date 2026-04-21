@@ -5,6 +5,7 @@ type Pixel = string | null;
 type Cell = { cellX: number; cellY: number };
 type DraftData = {
   version: 1;
+  documentName?: string;
   gridWidth: number;
   gridHeight: number;
   previewPixelSize: number;
@@ -73,6 +74,11 @@ export function usePixelCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
 
   const clonePixels = (source: Pixel[][]): Pixel[][] =>
     source.map((row) => row.map((value) => value));
+
+  const normalizeDocumentName = (value: string): string => {
+    const cleaned = value.replace(/\.pxd$/i, "").trim();
+    return cleaned || "Untitled";
+  };
 
   const createDocument = (name: string, width = 32, height = 32): PixelDocument => ({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -221,6 +227,12 @@ export function usePixelCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
       }
     }
     render();
+  };
+
+  const renameActiveDocument = (nextName: string): void => {
+    const doc = activeDocument.value;
+    if (!doc) return;
+    doc.name = normalizeDocumentName(nextName);
   };
 
   const render = (): void => {
@@ -513,6 +525,7 @@ export function usePixelCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
     if (!doc) return;
     const draft: DraftData = {
       version: 1,
+      documentName: doc.name,
       gridWidth: doc.gridWidth,
       gridHeight: doc.gridHeight,
       previewPixelSize: doc.previewPixelSize,
@@ -532,6 +545,13 @@ export function usePixelCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
     link.href = URL.createObjectURL(blob);
     link.click();
     URL.revokeObjectURL(link.href);
+  };
+
+  const saveDraftAs = (nextName: string): void => {
+    const doc = activeDocument.value;
+    if (!doc) return;
+    doc.name = normalizeDocumentName(nextName);
+    saveDraft();
   };
 
   const loadDraft = async (file: File): Promise<void> => {
@@ -576,7 +596,11 @@ export function usePixelCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
       }
     }
 
-    const nextDoc = createDocument(file.name.replace(/\.pxd$/i, ""), width, height);
+    const draftName =
+      typeof draft.documentName === "string" && draft.documentName.trim().length > 0
+        ? draft.documentName
+        : file.name;
+    const nextDoc = createDocument(normalizeDocumentName(draftName), width, height);
     nextDoc.pixels = restoredPixels;
     nextDoc.previewPixelSize = Math.min(
       MAX_PREVIEW_PIXEL_SIZE,
@@ -672,6 +696,8 @@ export function usePixelCanvas(canvasRef: Ref<HTMLCanvasElement | null>) {
     undo,
     redo,
     saveDraft,
+    saveDraftAs,
+    renameActiveDocument,
     loadDraft,
     importFromPng,
     exportPng,

@@ -8,6 +8,13 @@ import { usePixelCanvas } from "./composables/usePixelCanvas";
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const isDragActive = ref(false);
 const dragDepth = ref(0);
+const isImportDecisionOpen = ref(false);
+const importDecisionFileName = ref("");
+const importDecisionResolver = ref<((overwriteCurrent: boolean) => void) | null>(null);
+const isSaveAsOpen = ref(false);
+const saveAsName = ref("");
+const isRenameOpen = ref(false);
+const renameName = ref("");
 
 const {
   tool,
@@ -34,6 +41,8 @@ const {
   undo,
   redo,
   saveDraft,
+  saveDraftAs,
+  renameActiveDocument,
   loadDraft,
   importFromPng,
   exportPng,
@@ -44,9 +53,56 @@ const {
 const getFileBaseName = (fileName: string): string =>
   fileName.replace(/\.[^.]+$/, "").trim() || "Untitled";
 
-const handleDropFiles = async (files: FileList): Promise<void> => {
-  const droppedFiles = Array.from(files);
+const askImportDecision = (fileName: string): Promise<boolean> => {
+  importDecisionFileName.value = fileName;
+  isImportDecisionOpen.value = true;
+  return new Promise<boolean>((resolve) => {
+    importDecisionResolver.value = resolve;
+  });
+};
 
+const resolveImportDecision = (overwriteCurrent: boolean): void => {
+  if (importDecisionResolver.value) {
+    importDecisionResolver.value(overwriteCurrent);
+  }
+  importDecisionResolver.value = null;
+  isImportDecisionOpen.value = false;
+  importDecisionFileName.value = "";
+};
+
+const openSaveAsModal = (): void => {
+  saveAsName.value = (activeDocument.value?.name ?? "Untitled").replace(/\.pxd$/i, "");
+  isSaveAsOpen.value = true;
+};
+
+const confirmSaveAs = (): void => {
+  const nextName = saveAsName.value.trim();
+  if (!nextName) return;
+  saveDraftAs(nextName);
+  isSaveAsOpen.value = false;
+};
+
+const cancelSaveAs = (): void => {
+  isSaveAsOpen.value = false;
+};
+
+const openRenameModal = (): void => {
+  renameName.value = activeDocument.value?.name ?? "Untitled";
+  isRenameOpen.value = true;
+};
+
+const confirmRename = (): void => {
+  const nextName = renameName.value.trim();
+  if (!nextName) return;
+  renameActiveDocument(nextName);
+  isRenameOpen.value = false;
+};
+
+const cancelRename = (): void => {
+  isRenameOpen.value = false;
+};
+
+const handleDropFiles = async (droppedFiles: File[]): Promise<void> => {
   for (const file of droppedFiles) {
     const lowerName = file.name.toLowerCase();
     const isPxd = lowerName.endsWith(".pxd");
@@ -61,9 +117,7 @@ const handleDropFiles = async (files: FileList): Promise<void> => {
 
     const canOverwriteCurrent = isActiveUntitledBlank.value && activeDocument.value;
     if (canOverwriteCurrent) {
-      const shouldOverwrite = window.confirm(
-        "File hiện tại đang trống (Untitled). Bạn muốn đè file hiện tại bằng PNG vừa thả?\n\nOK = Đè file hiện tại\nCancel = Tạo tab mới",
-      );
+      const shouldOverwrite = await askImportDecision(file.name);
 
       if (!shouldOverwrite) {
         createNewDocument(getFileBaseName(file.name));
@@ -76,8 +130,28 @@ const handleDropFiles = async (files: FileList): Promise<void> => {
   }
 };
 
+const extractDroppedFiles = (event: DragEvent): File[] => {
+  const transfer = event.dataTransfer;
+  if (!transfer) return [];
+
+  const itemFiles: File[] = [];
+  if (transfer.items && transfer.items.length > 0) {
+    for (const item of Array.from(transfer.items)) {
+      if (item.kind !== "file") continue;
+      const file = item.getAsFile();
+      if (file) itemFiles.push(file);
+    }
+  }
+
+  if (itemFiles.length > 0) return itemFiles;
+  return Array.from(transfer.files ?? []);
+};
+
 const handleWindowDragOver = (event: DragEvent): void => {
   event.preventDefault();
+  if (event.dataTransfer) {
+    event.dataTransfer.dropEffect = "copy";
+  }
 };
 
 const handleWindowDragEnter = (event: DragEvent): void => {
@@ -98,23 +172,41 @@ const handleWindowDrop = async (event: DragEvent): Promise<void> => {
   event.preventDefault();
   dragDepth.value = 0;
   isDragActive.value = false;
-  const files = event.dataTransfer?.files;
-  if (!files || files.length === 0) return;
-  await handleDropFiles(files);
+  const droppedFiles = extractDroppedFiles(event);
+  if (droppedFiles.length === 0) return;
+  await handleDropFiles(droppedFiles);
+};
+
+const registerDropListeners = (target: Window | Document): void => {
+  target.addEventListener("dragenter", handleWindowDragEnter as EventListener);
+  target.addEventListener("dragleave", handleWindowDragLeave as EventListener);
+  target.addEventListener("dragover", handleWindowDragOver as EventListener);
+  target.addEventListener("drop", handleWindowDrop as unknown as EventListener);
+};
+
+const unregisterDropListeners = (target: Window | Document): void => {
+  target.removeEventListener("dragenter", handleWindowDragEnter as EventListener);
+  target.removeEventListener("dragleave", handleWindowDragLeave as EventListener);
+  target.removeEventListener("dragover", handleWindowDragOver as EventListener);
+  target.removeEventListener("drop", handleWindowDrop as unknown as EventListener);
+};
+
+const handleRenameShortcut = (event: KeyboardEvent): void => {
+  if (event.key !== "F2") return;
+  event.preventDefault();
+  openRenameModal();
 };
 
 onMounted(() => {
-  window.addEventListener("dragenter", handleWindowDragEnter);
-  window.addEventListener("dragleave", handleWindowDragLeave);
-  window.addEventListener("dragover", handleWindowDragOver);
-  window.addEventListener("drop", handleWindowDrop);
+  registerDropListeners(window);
+  registerDropListeners(document);
+  window.addEventListener("keydown", handleRenameShortcut);
 });
 
 onUnmounted(() => {
-  window.removeEventListener("dragenter", handleWindowDragEnter);
-  window.removeEventListener("dragleave", handleWindowDragLeave);
-  window.removeEventListener("dragover", handleWindowDragOver);
-  window.removeEventListener("drop", handleWindowDrop);
+  unregisterDropListeners(window);
+  unregisterDropListeners(document);
+  window.removeEventListener("keydown", handleRenameShortcut);
 });
 </script>
 
@@ -126,12 +218,52 @@ onUnmounted(() => {
     </div>
   </div>
 
+  <div v-if="isImportDecisionOpen" class="modal-overlay">
+    <div class="modal-card">
+      <h3>Import PNG</h3>
+      <p>
+        Tab hiện tại đang trống (Untitled). Với file
+        <strong>{{ importDecisionFileName }}</strong
+        >, bạn muốn làm gì?
+      </p>
+      <div class="action-buttons">
+        <button type="button" @click="resolveImportDecision(true)">Đè tab hiện tại</button>
+        <button type="button" @click="resolveImportDecision(false)">Tạo tab mới</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="isSaveAsOpen" class="modal-overlay">
+    <div class="modal-card">
+      <h3>Save Draft As</h3>
+      <p>Nhập tên mới cho bản draft (.pxd).</p>
+      <input v-model="saveAsName" type="text" placeholder="weapon_v2" />
+      <div class="action-buttons">
+        <button type="button" @click="confirmSaveAs">Save As</button>
+        <button type="button" @click="cancelSaveAs">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div v-if="isRenameOpen" class="modal-overlay">
+    <div class="modal-card">
+      <h3>Rename File</h3>
+      <p>Đổi tên tab/file hiện tại.</p>
+      <input v-model="renameName" type="text" placeholder="weapon_v2" />
+      <div class="action-buttons">
+        <button type="button" @click="confirmRename">Rename</button>
+        <button type="button" @click="cancelRename">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <AppTopToolbar
     :import-use-resize="importUseResize"
     :import-width-input="importWidthInput"
     :import-height-input="importHeightInput"
-    @new-file="createNewDocument"
+    @new-file="() => createNewDocument()"
     @save-draft="saveDraft"
+    @save-draft-as="openSaveAsModal"
     @load-draft="loadDraft"
     @import="importFromPng"
     @export="exportPng"
@@ -150,6 +282,7 @@ onUnmounted(() => {
       @click="setActiveDocument(doc.id)"
     >
       {{ doc.name }}
+      <span class="rename-tab" @click.stop="openRenameModal">rename</span>
       <span class="close-tab" @click.stop="closeDocument(doc.id)">x</span>
     </button>
     <button class="new-tab-btn" type="button" @click="() => createNewDocument()">+ New File</button>

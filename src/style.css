@@ -45,6 +45,36 @@ body {
   font-size: 0.85rem;
 }
 
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(6, 10, 20, 0.58);
+  display: grid;
+  place-items: center;
+}
+
+.modal-card {
+  width: min(520px, calc(100vw - 2rem));
+  border: 1px solid var(--border);
+  background: #171d33;
+  border-radius: 12px;
+  padding: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.modal-card h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.modal-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
 .file-tabs {
   display: flex;
   align-items: center;
@@ -75,6 +105,16 @@ body {
 .close-tab {
   opacity: 0.8;
   font-size: 0.75rem;
+}
+
+.rename-tab {
+  opacity: 0.75;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.rename-tab:hover {
+  opacity: 1;
 }
 
 .close-tab:hover {

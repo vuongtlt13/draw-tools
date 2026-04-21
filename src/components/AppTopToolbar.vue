@@ -8,6 +8,7 @@ defineProps<{
 const emit = defineEmits<{
   newFile: [];
   saveDraft: [];
+  saveDraftAs: [];
   loadDraft: [File];
   import: [File];
   export: [];
@@ -44,6 +45,7 @@ const applyImportPreset = (size: number): void => {
     <div class="action-buttons">
       <button type="button" @click="emit('newFile')">New File</button>
       <button type="button" @click="emit('saveDraft')">Save Draft</button>
+      <button type="button" @click="emit('saveDraftAs')">Save As</button>
       <label class="file-input-btn">
         Load Draft
         <input type="file" accept=".pxd,application/json" @change="handleLoadDraftFile" />
